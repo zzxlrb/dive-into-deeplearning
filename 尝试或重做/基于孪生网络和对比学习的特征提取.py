@@ -111,44 +111,48 @@ def eval(model, device, test_loader, epochs):
             plt.show()
             break
     x = [i for i in range(epochs)]
-    #plt.plot(x, loss_list)
+    plt.plot(x, loss_list)
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.show()
-    tsne3d = TSNE(n_components=3, init='pca', perplexity=30., random_state=0, learning_rate=200)
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    model.eval()
+    encoded_features = []  # 用于保存编码后的特征
+    original_labels = []  # 用于保存原始标签
     with torch.no_grad():
-        num = 0
-        for x, y in test_loader:
-            x, y = x.to(device), y.detach().cpu().numpy()
-            y_pred = model.encoder(x)
-            np_y_pred = y_pred.detach().cpu().numpy()
-            result = tsne3d.fit_transform(np_y_pred)
-            x_min, x_max = result.min(0), result.max(0)
-            result = (result - x_min) / (x_max - x_min)
-            ax.scatter(result[:, 0], result[:, 1], result[:, 2], c=y, cmap='jet')
-            for i, txt in enumerate(y):
-                ax.text(result[i, 0], result[i, 1], result[i, 2], str(txt))
-            num += 1
-            if num == 2:
+        for data in test_loader:
+            anchor_imgs,labels = data
+            anchor_imgs = anchor_imgs.to(device)
+
+            # 获取孪生网络的编码输出
+            anchor_outputs = model.encoder(anchor_imgs)
+            # 将编码输出转换为 NumPy 数组并添加到列表中
+            encoded_features.extend(anchor_outputs.cpu().numpy())
+
+            # 添加对应的原始标签
+            original_labels.extend(labels.cpu().numpy())
+
+            if len(encoded_features) >= 7000:
                 break
-        plt.show()
-    tsne2d = TSNE(n_components=2, init='pca', perplexity=30., random_state=0, learning_rate=200)
-    with (torch.no_grad()):
-        num = 0
-        for x, y in test_loader:
-            x, y = x.to(device), y.detach().cpu().numpy()
-            y_pred = model.encoder(x)
-            np_y_pred = y_pred.detach().cpu().numpy()
-            result = tsne2d.fit_transform(np_y_pred)
-            x_min, x_max = result.min(0), result.max(0)
-            result = (result - x_min) / (x_max - x_min)
-            plt.scatter(result[:, 0], result[:, 1], c=y, cmap='jet')
-            num += 1
-            if num == 3:
-                break
-        plt.show()
+
+    # 将列表转换为 NumPy 数组
+    encoded_features = np.array(encoded_features)
+
+    # 执行 t-SNE 降维
+    tsne = TSNE(n_components=2, random_state=42)
+    encoded_features_tsne = tsne.fit_transform(encoded_features)
+
+    # 绘制 t-SNE 可视化
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置中文显示的字体为黑体
+    plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+    plt.figure(figsize=(12, 10))  # 调整图表大小
+    plt.scatter(encoded_features_tsne[:, 0], encoded_features_tsne[:, 1], c=original_labels, cmap=plt.cm.tab10,
+                marker='o', alpha=0.7)  # 调整颜色映射和透明度，使用原始标签
+    plt.colorbar(ticks=range(10))
+    plt.title('自动编码器的 t-SNE 可视化')
+    plt.xlabel('特征1')
+    plt.ylabel('特征2')
+    plt.grid(True)  # 添加网格线
+    plt.show()
 
 
 net = AutoEDcoder()
@@ -158,8 +162,5 @@ epochs = 20
 train(model=net, device=device, train_loader=train_loader, optimizer=torch.optim.Adam(net.parameters(), lr=0.3),
       epochs=epochs)
 
-torch.save(net, './AutoEDcoder.pth')
-
-# net = torch.load('AutoEDcoder.pth')
-
+net = torch.load('AutoEDcoder.pth')
 eval(net, device=device, test_loader=test_loader, epochs=epochs)

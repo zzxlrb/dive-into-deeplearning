@@ -19,7 +19,8 @@ transform = transforms.Compose(
 
 train_data = datasets.MNIST(root='../data', train=True, transform=transform, download=True)
 test_data = datasets.MNIST(root='../data', train=False, transform=transform, download=True)
-
+epochs = 40
+learning_rate = 7e-4
 
 def get_data(dataset):
     x_data, y_data = [], []
@@ -73,12 +74,12 @@ class Siamese(nn.Module):
             nn.Conv2d(8, 16, kernel_size=3, padding=1, stride=1),
             nn.ReLU(),
             nn.BatchNorm2d(16),
-            nn.Conv2d(16, 4, kernel_size=3, padding=1, stride=1),
-            nn.BatchNorm2d(4),
+            nn.Conv2d(16, 2, kernel_size=3, padding=1, stride=1),
+            nn.BatchNorm2d(2),
             nn.ReLU(),
             nn.Flatten(),
             nn.Dropout(0.2),
-            nn.Linear(3136, out_features=4096),
+            nn.Linear(1568, out_features=128),
         )
 
     def forward(self, x):
@@ -92,9 +93,6 @@ def triplet_loss(anchor, positive, negative, margin=1.0):
     losses = F.relu(distance_positive - distance_negative + margin)
     return losses.mean()
 
-
-model = Siamese(output_size=10)
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
 
 
 def train(model, train_loader, optimizer, epochs, device):
@@ -122,51 +120,43 @@ def eval(model, device, test_loader, epochs):
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.show()
-    tsne3d = TSNE(n_components=3, init='pca', perplexity=30., random_state=0, learning_rate=300)
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    encoded_features = []
+    original_labels = []
     with torch.no_grad():
-        num = 0
-        for x, _, _, y in test_loader:
-            x, y = x.to(device), y.detach().cpu().numpy()
-            y_pred = model(x)
-            np_y_pred = y_pred.detach().cpu().numpy()
-            result = tsne3d.fit_transform(np_y_pred)
-            x_min, x_max = result.min(0), result.max(0)
-            result = (result - x_min) / (x_max - x_min)
-            ax.scatter(result[:, 0], result[:, 1], result[:, 2], c=y, cmap='jet')
-            for i, txt in enumerate(y):
-                ax.text(result[i, 0], result[i, 1], result[i, 2], str(txt))
-            num += 1
-            if num == 2:
+        for data in test_loader:
+            anchor_imgs, _, _, labels = data
+            anchor_imgs = anchor_imgs.to(device)
+            anchor_outputs = model(anchor_imgs)
+
+            encoded_features.extend(anchor_outputs.cpu().numpy())
+            original_labels.extend(labels.cpu().numpy())
+
+            if len(encoded_features) >= 7000:
                 break
-        plt.show()
-    tsne2d = TSNE(n_components=2, init='pca', perplexity=30., random_state=0, learning_rate=300)
-    with (torch.no_grad()):
-        num = 0
-        for x, _, _, y in test_loader:
-            x, y = x.to(device), y.detach().cpu().numpy()
-            y_pred = model(x)
-            np_y_pred = y_pred.detach().cpu().numpy()
-            result = tsne2d.fit_transform(np_y_pred)
-            x_min, x_max = result.min(0), result.max(0)
-            result = (result - x_min) / (x_max - x_min)
-            plt.scatter(result[:, 0], result[:, 1], c=y, cmap='jet')
-            num += 1
-            if num == 2:
-                break
-        plt.show()
+    encoded_features = np.array(encoded_features)
+    tsne = TSNE(n_components=2, random_state=42)
+    encoded_features_tsne = tsne.fit_transform(encoded_features)
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置中文显示的字体为黑体
+    plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+    plt.figure(figsize=(12, 10))  # 调整图表大小
+    plt.scatter(encoded_features_tsne[:, 0], encoded_features_tsne[:, 1], c=original_labels, cmap=plt.cm.tab10,
+                marker='o', alpha=0.7)  # 调整颜色映射和透明度，使用原始标签
+    plt.colorbar(ticks=range(10))
+    plt.title('孪生网络编码特征的 t-SNE 可视化')
+    plt.xlabel('特征1')
+    plt.ylabel('特征2')
+    plt.grid(True)  # 添加网格线
+    plt.show()
 
 
-epochs = 20
+print('===========Siamese===========')
+
+
+model = Siamese(output_size=10)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 
 train(model, train_loader, optimizer, epochs, device)
-
-torch.save(model, 'Siamese.pth')
-
-# model = torch.load('Siamese.pth')
-#
 eval(model, device, test_loader, epochs)
 
 class AutoEDcoder(nn.Module):
@@ -184,8 +174,7 @@ class AutoEDcoder(nn.Module):
             nn.BatchNorm2d(18),
             nn.LeakyReLU(),
             nn.Flatten(),
-            nn.Linear(18 * 4 * 4, 512),
-            nn.Linear(512,1024)
+            nn.Linear(18 * 4 * 4, 128)
         )
 
     def forward(self, x):
@@ -196,7 +185,8 @@ class AutoEDcoder(nn.Module):
 loss_list = []
 
 net = AutoEDcoder()
-trainer = torch.optim.Adam(net.parameters(), lr=5e-4)
+print('===========AutoEDcoder===========')
+trainer = torch.optim.Adam(net.parameters(), lr=learning_rate)
 
 train(net, train_loader, trainer, epochs, device)
 
