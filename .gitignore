@@ -15,8 +15,11 @@ ehthumbs_vista.db
 [Dd]esktop.ini
 data/
 尝试或重做/模型参数
+尝试或重做/result
+尝试或重做/jupyternotebook/result
+
 # Recycle Bin used on file shares
-$RECYCLE.BIN/
+$RECYCLE.BIN/s
 
 # Windows Installer files
 *.cab
